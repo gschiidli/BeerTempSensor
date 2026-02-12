@@ -20,6 +20,7 @@ OneWire oneWire(oneWireBus);
 // Pass our oneWire reference to Dallas Temperature sensor 
 DallasTemperature sensors(&oneWire);
 
+BLEAdvertising *pAdvertising;
 BLECharacteristic *pValueCharacteristic;
 BLECharacteristic *pAutoupdateCharacteristic;
 BLECharacteristic *pTargetValueCharacteristic;
@@ -35,11 +36,7 @@ class MyServerCallbacks: public BLEServerCallbacks {
     sensors.requestTemperatures(); 
     float temperatureC = sensors.getTempCByIndex(0);
     getUpdatedValue(temperatureC);
-    BLEDevice::stopAdvertising();
   };
-  void onDisconnect(BLEServer* pServer) {
-    BLEDevice::startAdvertising();
-  }
 };
 
 enum TargeValueProgress: std::uint8_t {
@@ -180,7 +177,7 @@ void setup() {
 
   pService->start();
   // BLEAdvertising *pAdvertising = pServer->getAdvertising();  // this still is working for backward compatibility
-  BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
+  pAdvertising = BLEDevice::getAdvertising();
 
   pAdvertising->addServiceUUID(SERVICE_UUID);
   pAdvertising->setScanResponse(true);
@@ -196,15 +193,36 @@ void loop() {
   sensors.requestTemperatures(); 
   float temperatureC = sensors.getTempCByIndex(0);
 
-  if (autoUpdatesSending) {
-    getUpdatedValue(temperatureC);
-  }
+  getUpdatedValue(temperatureC);
   if (targetValueActive) {
     checkTargetValue(temperatureC);
   }
 
+  // Construct new advertisement data
+  BLEAdvertisementData newData;
+  newData.setFlags(0x06);
+
+  std::string manufacturerData = "";
+  manufacturerData += (char)0xFF;
+  manufacturerData += (char)0xFF;
+
+  // Example: put counter value into the payload
+  char payload[4];
+  snprintf(payload, sizeof(payload), "%03d", counter);
+  manufacturerData += std::string(payload);
+
+  newData.setManufacturerData(manufacturerData);
+
+  // Update advertisement
+  BLEDevice::getAdvertising()->stop();
+  pAdvertising->setAdvertisementData(newData);
+  BLEDevice::startAdvertising();
+
+  Serial.print("Broadcasting: ");
+  Serial.println(payload);
+
   Serial.print(temperatureC);
   Serial.println("°C");
 
-  delay(autoUpdatesSending ? autoUpdate : 1000);
+  delay(1000);
 }
